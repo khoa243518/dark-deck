@@ -1,0 +1,2 @@
+------Rules input hero information-------
+ * {ID,name,hp,atk,def,spd}
