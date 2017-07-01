@@ -16,11 +16,14 @@ public class Card
 	public Attack atk;
 	public Defense defense;
 	public Chart chart;
+	public Skill skill;
+	public int rebirthTo;
 	public Card()
 	{
 		atk = new Attack();
 		defense = new Defense();
 		chart = new Chart();
+		skill = new Skill();
 	}
 }
 
@@ -36,7 +39,8 @@ public enum AttackType
 public enum DefenseType
 {
 	Deduction,
-	Exceed
+	Exceed,
+	Deduction_Exceed
 }
 
 [System.Serializable]
@@ -51,7 +55,8 @@ public class Attack
 public class Defense
 {
 	public DefenseType type;
-	public int value;
+	public int value1;
+	public int value2;
 }
 
 [System.Serializable]
@@ -114,6 +119,32 @@ public class Team
 		
 	}
 
+	public CardInBattle GetRandomCard()
+	{
+		int i = UnityEngine.Random.Range(0,4);
+		while(cardinfield[i].currentHp <=0)
+		{
+			i = UnityEngine.Random.Range(0,4);
+		}
+		return cardinfield[i];
+	}
+
+	public CardInBattle GetWeakestCard()
+	{
+		int pos = 0;
+		int weakesthp =cardinfield[pos].currentHp;
+		for(int i = 1; i < 4; i ++)
+		{
+			if(weakesthp < cardinfield[i].currentHp)
+			{
+				pos = i;
+				weakesthp = cardinfield[pos].currentHp;
+			}
+		}
+
+		return cardinfield[pos];
+	}
+
 }
 
 [System.Serializable]
@@ -131,11 +162,38 @@ public class BaseSkill
 
 public enum SkillType
 {
+	None,
 	Heal,
 	HealAll,
 	Hit,
 	HitWeakest,
-	HitAll
+	HitAll,
+	HitRandom,
+	AddDame,
+	AddArmor,
+	ReducesAllDame,
+	AddDameRandom,
+	ReducesDameRandom,
+	AddDameAll,
+	ReducesRandomDame_AndHeal
+
+}
+
+public class Skill
+{
+	public SkillType skillType=SkillType.None;
+	public int value1;
+	public int value2;
+	public int cooldown;
+
+	public Skill()
+	{
+		skillType = SkillType.None;
+		value1 = 0 ; 
+		value2 = 0;
+		cooldown = 0;
+	}
+
 }
 
 #endregion
@@ -150,6 +208,9 @@ public class CardInBattle
 	public int currentDame;
 	public int currentDef;
 	public int currentSpd;
+
+	public int currentCooldown;//0 mean active
+
 	public bool isDead= false;
 	public CardInBattle(Card c)
 	{
@@ -157,7 +218,8 @@ public class CardInBattle
 		card.atk = c.atk;
 		card.defense = new Defense();
 		card.defense.type = c.defense.type;
-		card.defense.value = c.defense.value;
+		card.defense.value1 = c.defense.value1;
+		card.defense.value2 = c.defense.value2;
 		card.atk = new global::Attack();
 		card.atk.type = c.atk.type;
 		card.atk.value = c.atk.value;
@@ -166,7 +228,11 @@ public class CardInBattle
 		card.id = c.id;
 		card.name = c.name;
 		card.spd = c.spd;
-
+		card.skill.skillType = c.skill.skillType;
+		card.skill.value1 = c.skill.value1;
+		card.skill.value2 = c.skill.value2;
+		card.skill.cooldown = c.skill.cooldown;
+		card.rebirthTo = c.rebirthTo;
 		//
 		ResetValue();
 	}
@@ -174,7 +240,7 @@ public class CardInBattle
 	{
 		currentHp = card.hp;
 		currentDame = card.atk.value;
-		currentDef = card.defense.value;
+		currentDef = card.defense.value1;
 		currentSpd = card.spd;
 	}
 
@@ -185,22 +251,22 @@ public class CardInBattle
 			if(card.atk.type == AttackType.Single)
 			{
 				int nearest = team.GetNearestAttacked(pos);
-				team.cardinfield[nearest].ReceiveDame(currentDame);// .currentHp -= Mathf.Max(0,(currentDame-team.cardinfield[nearest].currentDef));
-				if(team.IsLose())
+				team.cardinfield[nearest].ReceiveDame(currentDame,this);
+				if(team.IsLose() || currentHp <= 0)
 					return;
 			}
 			else if(card.atk.type == AttackType.Splash)
 			{
 				int nearest = team.GetNearestAttacked(pos);
-				team.cardinfield[nearest].ReceiveDame(currentDame);//.currentHp -= Mathf.Max(0,(currentDame-team.cardinfield[nearest].currentDef));
-				if(team.IsLose())
+				team.cardinfield[nearest].ReceiveDame(currentDame,this);
+				if(team.IsLose() || currentHp <= 0)
 					return;
 				
 				int nearest2 = team.GetNearestAttacked(nearest-1);
 				if(nearest != nearest2)
 				{
-					team.cardinfield[nearest2].ReceiveDame(currentDame);// .currentHp -= Mathf.Max(0,(currentDame-team.cardinfield[nearest2].currentDef));
-					if(team.IsLose())
+					team.cardinfield[nearest2].ReceiveDame(currentDame,this);
+					if(team.IsLose() || currentHp <= 0)
 						return;
 				}
 			}
@@ -208,23 +274,121 @@ public class CardInBattle
 			{
 				foreach(CardInBattle c in team.cardinfield)
 				{
-					c.ReceiveDame(currentDame);// .currentHp -= Mathf.Max(0,(currentDame-c.currentDef));
+					c.ReceiveDame(currentDame);
 				}
 				if(team.IsLose())
 					return;
 			}
 		}
 	}
+		
 
-	public void ReceiveDame(int damage)
+	public void ReceiveDame(int damage,CardInBattle attacker = null)
 	{
 		if(card.defense.type == DefenseType.Deduction)
 		{
-			currentHp -= Mathf.Max(0,(damage-currentDef));
+			currentHp -= Mathf.Max(1,(damage-currentDef));
+		}
+		else  if(card.defense.type == DefenseType.Exceed)
+		{
+			currentHp -= Mathf.Min(card.defense.value2,damage);
 		}
 		else 
 		{
-			currentHp -= Mathf.Min(currentDef,damage);
+			Mathf.Min(card.defense.value2, Mathf.Max(1,(damage-currentDef)) );
+		}
+
+		if(attacker!=null)
+		{
+			if(card.id == 53 || card.id ==54)
+			{
+				attacker.ReceiveDame(3);
+			}
+			else if(card.id ==55 || card.id == 56)
+			{
+				attacker.ReceiveDame(3);
+			}
+		}
+
+		if(currentHp<=0)
+		{
+			if(card.rebirthTo != 0)
+			{
+				Card newCard = SceneController.instance.GetCardByID(card.rebirthTo);
+				new CardInBattle(newCard);
+				//this = new CardInBattle( 
+			}
+		}
+
+	}
+
+	public void ReceiveHP(int hp)
+	{
+		if(currentHp<=0)
+			return;
+		else
+			currentHp = Mathf.Min(card.hp,currentHp+hp);
+	}
+
+	public void UpDateSkill(Team myTeam,Team enemyTeam,int pos)
+	{
+		if(currentCooldown<=0)
+		{
+			currentCooldown = card.skill.cooldown;
+			switch(card.skill.skillType)
+			{
+			case SkillType.Heal:
+				currentHp+=card.skill.value1;
+				break;
+			case SkillType.HealAll:
+				foreach(CardInBattle c in myTeam.cardinfield)
+					c.ReceiveHP(card.skill.value1);
+				break;
+			case SkillType.AddArmor:
+				currentDef+= card.skill.value1;
+				break;
+			case SkillType.AddDame:
+				currentDame+= card.skill.value1;
+				break;
+			case SkillType.Hit:
+				enemyTeam.cardinfield[enemyTeam.GetNearestAttacked(pos)].ReceiveDame(card.skill.value1);
+				break;
+			case SkillType.HitAll:
+				foreach(CardInBattle c in enemyTeam.cardinfield)
+					c.ReceiveDame(card.skill.value1);
+				break;
+			case SkillType.HitRandom:
+				enemyTeam.GetRandomCard().ReceiveDame(currentDame);
+				break;
+			case SkillType.HitWeakest:
+				enemyTeam.GetWeakestCard().ReceiveDame(currentDame);
+				break;
+			case SkillType.ReducesAllDame:
+				foreach(CardInBattle c in enemyTeam.cardinfield)
+					c.currentDame = Math.Max(1,c.currentDame-card.skill.value1);
+				break;
+			case SkillType.AddDameRandom:
+				myTeam.GetRandomCard().currentDame += card.skill.value1;
+				break;
+			case SkillType.ReducesRandomDame_AndHeal:
+				CardInBattle ca1 = enemyTeam.GetRandomCard();
+				ca1.currentDame = Math.Max(1,ca1.currentDame-card.skill.value1);
+				ReceiveHP(card.skill.value1);
+				//enemyTeam.GetRandomCard().currentDame += card.skill.value1;
+				break;
+			case SkillType.ReducesDameRandom:
+				CardInBattle ca2 = enemyTeam.GetRandomCard();
+				ca2.currentDame = Math.Max(1,ca2.currentDame-card.skill.value1);
+				break;
+			case SkillType.AddDameAll:
+				foreach(CardInBattle c in myTeam.cardinfield)
+					c.currentDame += card.skill.value1;
+				break;
+			}
+		}
+		else if(card.skill.skillType != SkillType.None)
+		{
+			card.skill.cooldown-=1;
 		}
 	}
 
@@ -232,6 +396,8 @@ public class CardInBattle
 
 
 public class SceneController : MonoBehaviour {
+	public static SceneController instance;
+
 	const string fileName = "Assets\\Resources\\heros.xlsx";
 	int numberCard=200;
 
@@ -242,6 +408,7 @@ public class SceneController : MonoBehaviour {
 
 
 	void Start () {
+		instance = this;
 		cards = new List<Card>();
 		teamA  = new Team();
 		teamB = new Team();
@@ -254,7 +421,7 @@ public class SceneController : MonoBehaviour {
 			LoadDefineValue(sheets["define"]);
 			InitAllCards(sheets["card"]);
 			Print(System.DateTime.Now.TimeOfDay.ToString(),1);
-			for(int tier = 1 ; tier < 10 && cards.Count>0; tier ++)
+			for(int tier = 1 ; tier < 30 && cards.Count>0; tier ++)
 			{
 				foreach(Card c in cards)
 				{
@@ -274,13 +441,16 @@ public class SceneController : MonoBehaviour {
 				}
 				List<Card> sortedList = cards.OrderByDescending(c=>(1f-c.chart.per)).ToList();
 				cards = sortedList;
-				int nRemove = Math.Min(10,cards.Count);
+				int nRemove = Math.Min(4,cards.Count);
 				for(int i = 0 ; i < nRemove;i++)
 				{
-					if(tier >5 )
-						sheets["card"].Cells[cards[0].id+2,19].Value = string.Format("Tier "+(tier-5));
+					if(tier >16 )
+						sheets["card"].Cells[cards[0].id+2,19].Value = string.Format("Tier "+(tier-16));
+					else
+						sheets["card"].Cells[cards[0].id+2,19].Value = "";
 					sheets["card"].Cells[cards[0].id+2,16].Value = cards[0].chart.win;
 					sheets["card"].Cells[cards[0].id+2,17].Value = cards[0].chart.all;
+
 					cards.Remove(cards[0]);
 				}
 			}
@@ -324,9 +494,39 @@ public class SceneController : MonoBehaviour {
 		card.atk.count = GetInt(sheet.GetValue(row,8));
 
 		card.defense.type = (DefenseType)(Enum.Parse(typeof(DefenseType),sheet.GetValue(row,9).ToString()));
-		card.defense.value = GetInt(sheet.GetValue(row,10));
+		if(card.defense.type == DefenseType.Deduction)
+		{
+			card.defense.value1 = GetInt(sheet.GetValue(row,10));
+		}
+		else if(card.defense.type == DefenseType.Exceed)
+		{
+			card.defense.value2 = GetInt(sheet.GetValue(row,10));
+		}
+		else 
+		{
+			string s = sheet.GetValue(row,10).ToString();
+			int.TryParse(s.Split(' ')[0],out card.defense.value1);
+			int.TryParse(s.Split(' ')[1],out card.defense.value2);
+		}
 
 		card.spd = GetInt(sheet.GetValue(row,11));
+
+		//if(Enum.TryParse(á"dsadc")); System
+		try
+		{
+			card.skill.skillType = (SkillType)(Enum.Parse(typeof(SkillType),sheet.GetValue(row,12).ToString()));
+			card.skill.value1 = GetInt(sheet.GetValue(row,13));
+			card.skill.cooldown = GetInt(sheet.GetValue(row,15));
+
+			//if(int.TryParse(sheet.GetValue(row,14).ToString(),card.skill.value2))
+			//	card.skill.value2 = GetInt(sheet.GetValue(row,14));4
+			int.TryParse(sheet.GetValue(row,14).ToString(),out card.skill.value2);
+		}
+		catch (Exception ex)
+		{
+			card.skill.skillType = SkillType.None;
+		}
+
 		return card;
 
 	}
@@ -398,16 +598,31 @@ public class SceneController : MonoBehaviour {
 				//rules attack
 				if(firstTeam.cardinfield.Count>i && firstTeam.cardinfield[i].currentHp > 0)
 				{
+					//checkskill
+					firstTeam.cardinfield[i].UpDateSkill(firstTeam,secondTeam,i);
+					if(secondTeam.IsLose())
+						return firstTeam;
+					//attack
 					firstTeam.cardinfield[i].Attack(secondTeam,i);
 					if(secondTeam.IsLose())
 						return firstTeam;
+					if(firstTeam.IsLose())
+						return secondTeam;
 				}
+
+
 
 				if(secondTeam.cardinfield.Count>i && secondTeam.cardinfield[i].currentHp > 0)
 				{
+					//checkskill
+					secondTeam.cardinfield[i].UpDateSkill(secondTeam,firstTeam,i);
+					if(firstTeam.IsLose())
+						return secondTeam;
 					secondTeam.cardinfield[i].Attack(firstTeam,i);
 					if(firstTeam.IsLose())
 						return secondTeam;
+					if(secondTeam.IsLose())
+						return firstTeam;
 				}
 
 			}
